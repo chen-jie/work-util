@@ -1,4 +1,4 @@
-package util;
+package com.chenjie.workutil.excel;
 
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -10,6 +10,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,29 +24,27 @@ public class ExcelUtil
 {
     private static void createNewExcel(File file) throws Exception
     {
-        if(file.exists())
-        {
-            return;
-        }
-        XSSFWorkbook workbook = new XSSFWorkbook();
-        workbook.createSheet("包名");
-        FileOutputStream fo = new FileOutputStream(file);
-        workbook.write(fo);
-        fo.close();
+        createNewExcel(file, "first", null);
     }
-    private static void createNewExcelAndFirstRow(File file) throws Exception
+
+    /**
+     * 创建一个excel文件（已存在，删除原文件），初始化第一行数据
+     *
+     * @param file
+     * @param firstSheetName
+     * @param firstRows
+     */
+    private static void createNewExcel(File file,String firstSheetName, String[] firstRows) throws Exception
     {
         if(file.exists())
         {
-            return;
+            file.delete();
         }
         XSSFWorkbook workbook = new XSSFWorkbook();
-        XSSFSheet sheet = workbook.createSheet("K5");
-        createFirstRow(sheet, new String[]{"测试人","编号","应用名称","应用包名","版本号","版本名","应用简介","下载地址","参考标签","确认分类标签","安全风险标签","有无付费标签","发布方式","备注","应用级别","是否有异常信息","抓包来源"});
-        sheet = workbook.createSheet("其他机型");
-        createFirstRow(sheet,new String[]{"测试人","编号","应用名称","应用包名","版本名","版本号","下载地址","下载量","机型","状态","测试结果","备注"});
-        sheet = workbook.createSheet("抓包不到");
-        createFirstRow(sheet,new String[]{"应用名称","包名","版本名","机型","备注"});
+        XSSFSheet sheet = workbook.createSheet(firstSheetName);
+        if(firstRows != null && firstRows.length > 0){
+            createFirstRow(sheet, firstRows);
+        }
         FileOutputStream fo = new FileOutputStream(file);
         workbook.write(fo);
         fo.close();
@@ -62,6 +61,12 @@ public class ExcelUtil
         }
     }
 
+    /**
+     * 向excel文件里面写数据，只能写一列
+     *
+     * @param datas
+     * @param file
+     */
     public static void write(Collection<String> datas, File file) throws Exception
     {
         createNewExcel(file);
@@ -84,6 +89,13 @@ public class ExcelUtil
         fo.flush();
         fo.close();
     }
+
+    /**
+     * 向excel文件里面写数据，写多列
+     *
+     * @param datas
+     * @param file
+     */
     public static void writeMultiCol(Collection<List<String>> datas, File file) throws Exception
     {
         createNewExcel(file);
@@ -110,39 +122,14 @@ public class ExcelUtil
         fo.flush();
         fo.close();
     }
-    public static void writeMultiCol(Collection<List<String>> datas, File file, int sheetNum) throws Exception
-    {
-        createNewExcelAndFirstRow(file);
-        FileInputStream fi = new FileInputStream(file);
 
-        XSSFWorkbook workbook = new XSSFWorkbook(fi);
-        Sheet sheet = workbook.getSheetAt(sheetNum);
-
-        for (List<String> data : datas)
-        {
-            int lastRowNum = sheet.getLastRowNum();
-            Row row = sheet.createRow(lastRowNum+1);
-            int cellCount = 0;
-            for (String item : data)
-            {
-                Cell cell = row.createCell(cellCount++);
-                cell.setCellValue(item);
-            }
-        }
-        FileOutputStream fo = new FileOutputStream(file);
-        workbook.write(fo);
-
-        fi.close();
-        fo.flush();
-        fo.close();
-    }
     /**
      * excel 2007格式
      * @param is 文件输入流
      */
-    public static List<String> read(InputStream is, int sheetNum, int firstRow)
+    public static List<Map> readFileFromInputStreamPOIX(InputStream is, int sheetNum, int firstRow , Map<Integer,String> colMap)
     {
-        List<String> resultList = new ArrayList<>();
+        List<Map> resultList = new ArrayList<>();
         XSSFWorkbook xwb;
         try
         {
@@ -150,8 +137,9 @@ public class ExcelUtil
             // 读取第一章表格内容
             XSSFSheet sheet = xwb.getSheetAt(sheetNum);
             XSSFRow row;
-            int allRows = sheet.getPhysicalNumberOfRows();
-            for(int i = firstRow ; i < allRows; i++ )
+//            int allRows = sheet.getPhysicalNumberOfRows();
+            int allRows = sheet.getLastRowNum();
+            for(int i = firstRow ; i <= allRows; i++ )
             {
                 row = sheet.getRow(i); // 获取行对象
                 if (row == null)
@@ -159,12 +147,21 @@ public class ExcelUtil
                     continue;
                 }
                 Map<String,String > beanMap = new HashMap<>();
-                XSSFCell cell = row.getCell(0);
-                if(cell != null)
+                for (Map.Entry<Integer, String> entry : colMap.entrySet())
                 {
-                    cell.setCellType(Cell.CELL_TYPE_STRING);
-                    String value = cell.getStringCellValue();
-                    resultList.add(value);
+                    Integer col = entry.getKey();
+                    String property = entry.getValue();
+                    XSSFCell cell = row.getCell(col);
+                    if(cell != null)
+                    {
+                        cell.setCellType(Cell.CELL_TYPE_STRING);
+                        String value = cell.getStringCellValue();
+                        beanMap.put(property,value);
+                    }
+                }
+                if(!beanMap.isEmpty())
+                {
+                    resultList.add(beanMap);
                 }
             }
         } catch (IOException e)
@@ -181,5 +178,16 @@ public class ExcelUtil
             }
         }
         return resultList;
+    }
+
+    public static List<Map> readExcel2007(String filePath,int sheetNum,int firstRow,Map colMap)
+    {
+        try {
+            InputStream is = new FileInputStream(filePath);
+            return readFileFromInputStreamPOIX(is,sheetNum,firstRow,colMap);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        return new ArrayList<>();
     }
 }
